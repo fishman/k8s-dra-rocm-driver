@@ -1,5 +1,5 @@
 # Copyright 2023 The Kubernetes Authors.
-# Copyright 2023 NVIDIA CORPORATION.
+# Copyright 2023-2026 Advanced Micro Devices, Inc. (AMD).
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -59,12 +59,14 @@ nodes:
       kubeletExtraArgs:
         v: "1"
   extraMounts:
-  # We inject all NVIDIA GPUs using the nvidia-container-runtime.
-  # This requires `accept-nvidia-visible-devices-as-volume-mounts = true` be set
-  # in `/etc/nvidia-container-runtime/config.toml`
+  # We inject all AMD GPUs using the rocm-container-runtime.
+  # This requires proper ROCm container runtime configuration
+  # in the ROCm container toolkit setup
   - hostPath: /dev/null
-    containerPath: /var/run/nvidia-container-devices/cdi/runtime.nvidia.com/gpu/all
-  # We need to inject the fabricmanager socket to support MIG with toolkit 1.16.2
-  # TODO: Remove this once we have a version of the toolkit where this is not required
-  - hostPath: /run/nvidia-fabricmanager/socket
-    containerPath: /run/nvidia-fabricmanager/socket
+    containerPath: /var/run/rocm-container-devices/cdi/dev.amd.com/gpu/all
+  # We need to inject the ROCm device paths for GPU access
+  # ROCm devices are exposed through standard device nodes
+  - hostPath: /dev/kfd
+    containerPath: /dev/kfd
+  - hostPath: /dev/dri
+    containerPath: /dev/dri

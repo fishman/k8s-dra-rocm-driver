@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023 NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2022-2025 Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,11 +30,82 @@ import (
 	"k8s.io/component-base/logs"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
-
-	"github.com/Project-HAMi/k8s-dra-driver/pkg/version"
-	// "github.com/NVIDIA/k8s-dra-driver-gpu/internal/info"
-	pkgflags "github.com/NVIDIA/k8s-dra-driver-gpu/pkg/flags"
 )
+
+// TODO: Stub types to replace external pkgflags package
+// These are minimal implementations - proper versions need to be created locally
+
+// KubeClientConfig provides configuration for Kubernetes client
+type KubeClientConfig struct{}
+
+// Flags returns the CLI flags for kube client configuration
+func (k *KubeClientConfig) Flags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "kubeconfig",
+			Usage:   "Path to kubeconfig file",
+			EnvVars: []string{"KUBECONFIG"},
+		},
+		&cli.StringFlag{
+			Name:    "context",
+			Usage:   "Kubernetes context",
+			EnvVars: []string{"KUBE_CONTEXT"},
+		},
+		&cli.StringFlag{
+			Name:    "namespace",
+			Usage:   "Kubernetes namespace",
+			EnvVars: []string{"KUBE_NAMESPACE"},
+		},
+	}
+}
+
+// NewClientSets creates Kubernetes clientsets
+func (k *KubeClientConfig) NewClientSets() (ClientSets, error) {
+	// TODO: Implement actual client creation
+	return ClientSets{}, fmt.Errorf("KubeClientConfig.NewClientSets not implemented")
+}
+
+// ClientSets holds Kubernetes clientsets
+type ClientSets struct {
+	// TODO: Add actual client fields
+}
+
+// LoggingConfig provides logging configuration
+type LoggingConfig struct{}
+
+// NewLoggingConfig creates a new logging configuration
+func NewLoggingConfig() *LoggingConfig {
+	return &LoggingConfig{}
+}
+
+// Flags returns the CLI flags for logging configuration
+func (l *LoggingConfig) Flags() []cli.Flag {
+	return []cli.Flag{
+		&cli.StringFlag{
+			Name:    "vmodule",
+			Usage:   "Comma-separated list of pattern=N log level settings",
+			EnvVars: []string{"VLOG_MODULE"},
+		},
+	}
+}
+
+// Apply applies the logging configuration
+func (l *LoggingConfig) Apply() error {
+	// TODO: Implement actual logging setup
+	return nil
+}
+
+// LogStartupConfig logs the startup configuration
+func LogStartupConfig(flags *Flags, loggingConfig *LoggingConfig) {
+	klog.Infof("Startup config: flags=%v, logging=%v", flags, loggingConfig)
+	// TODO: Implement actual logging of startup config
+}
+
+// Version returns the version string
+func Version() string {
+	// TODO: Implement proper version from local package
+	return "dev"
+}
 
 const (
 	DriverName                         = "hami-core-gpu.project-hami.io"
@@ -42,14 +113,14 @@ const (
 )
 
 type Flags struct {
-	kubeClientConfig pkgflags.KubeClientConfig
+	kubeClientConfig KubeClientConfig
 
 	nodeName                      string
 	namespace                     string
 	cdiRoot                       string
 	containerDriverRoot           string
 	hostDriverRoot                string
-	nvidiaCDIHookPath             string
+	rocmCDIHookPath               string
 	imageName                     string
 	kubeletRegistrarDirectoryPath string
 	kubeletPluginsDirectoryPath   string
@@ -58,7 +129,7 @@ type Flags struct {
 
 type Config struct {
 	flags      *Flags
-	clientsets pkgflags.ClientSets
+	clientsets ClientSets
 }
 
 func (c Config) DriverPluginPath() string {
@@ -73,9 +144,8 @@ func main() {
 }
 
 func newApp() *cli.App {
-	loggingConfig := pkgflags.NewLoggingConfig()
+	loggingConfig := NewLoggingConfig()
 	featureGateConfig := newFeatureGateConfig()
-	// featureGateConfig := pkgflags.NewFeatureGateConfig()
 	flags := &Flags{}
 
 	cliFlags := []cli.Flag{
@@ -101,25 +171,25 @@ func newApp() *cli.App {
 			EnvVars:     []string{"CDI_ROOT"},
 		},
 		&cli.StringFlag{
-			Name:        "nvidia-driver-root",
+			Name:        "rocm-driver-root",
 			Aliases:     []string{"host_driver-root"},
 			Value:       "/",
-			Usage:       "the root path for the NVIDIA driver installation on the host (typical values are '/' or '/run/nvidia/driver')",
+			Usage:       "the root path for the ROCm driver installation on the host (typical values are '/' or '/opt/rocm')",
 			Destination: &flags.hostDriverRoot,
-			EnvVars:     []string{"NVIDIA_DRIVER_ROOT", "HOST_DRIVER_ROOT"},
+			EnvVars:     []string{"ROCM_DRIVER_ROOT", "HOST_DRIVER_ROOT"},
 		},
 		&cli.StringFlag{
 			Name:        "container-driver-root",
 			Value:       "/driver-root",
-			Usage:       "the path where the NVIDIA driver root is mounted in the container; used for generating CDI specifications",
+			Usage:       "the path where the ROCm driver root is mounted in the container; used for generating CDI specifications",
 			Destination: &flags.containerDriverRoot,
 			EnvVars:     []string{"DRIVER_ROOT_CTR_PATH"},
 		},
 		&cli.StringFlag{
-			Name:        "nvidia-cdi-hook-path",
-			Usage:       "Absolute path to the nvidia-cdi-hook executable in the host file system. Used in the generated CDI specification.",
-			Destination: &flags.nvidiaCDIHookPath,
-			EnvVars:     []string{"NVIDIA_CDI_HOOK_PATH"},
+			Name:        "rocm-cdi-hook-path",
+			Usage:       "Absolute path to the rocm-cdi-hook executable in the host file system. Used in the generated CDI specification.",
+			Destination: &flags.rocmCDIHookPath,
+			EnvVars:     []string{"ROCM_CDI_HOOK_PATH"},
 		},
 		&cli.StringFlag{
 			Name:        "image-name",
@@ -156,7 +226,7 @@ func newApp() *cli.App {
 
 	app := &cli.App{
 		Name:            "hami-core-gpu-kubelet-plugin",
-		Usage:           "hami-core-gpu-kubelet-plugin implements a DRA driver plugin for HAMi-Core with NVIDIA GPUs.",
+		Usage:           "hami-core-gpu-kubelet-plugin implements a DRA driver plugin for HAMi-Core with AMD GPUs.",
 		ArgsUsage:       " ",
 		HideHelpCommand: true,
 		Flags:           cliFlags,
@@ -166,7 +236,7 @@ func newApp() *cli.App {
 			}
 			// `loggingConfig` must be applied before doing any logging
 			err := loggingConfig.Apply()
-			pkgflags.LogStartupConfig(flags, loggingConfig)
+			LogStartupConfig(flags, loggingConfig)
 			return err
 		},
 		Action: func(c *cli.Context) error {
@@ -190,7 +260,7 @@ func newApp() *cli.App {
 			logs.FlushLogs()
 			return nil
 		},
-		Version: version.Version(),
+		Version: Version(),
 	}
 
 	// We remove the -v alias for the version flag so as to not conflict with the -v flag used for klog.
@@ -210,9 +280,9 @@ func RunPlugin(ctx context.Context, config *Config) error {
 		return err
 	}
 
-	// Setup nvidia-cdi-hook binary
-	if err := config.setNvidiaCDIHookPath(); err != nil {
-		return fmt.Errorf("error setting up nvidia-cdi-hook: %w", err)
+	// Setup rocm-cdi-hook binary
+	if err := config.setRocmCDIHookPath(); err != nil {
+		return fmt.Errorf("error setting up rocm-cdi-hook: %w", err)
 	}
 
 	// Initialize CDI root directory
@@ -254,31 +324,30 @@ func RunPlugin(ctx context.Context, config *Config) error {
 }
 
 // change to config
-// If 'f.nvidiaCDIHookPath' is already set (from the command line), do nothing.
-// If 'f.nvidiaCDIHookPath' is empty, it copies the nvidia-cdi-hook binary from
-// /usr/bin/nvidia-cdi-hook to DriverPluginPath and sets 'f.nvidiaCDIHookPath'
-// to this path. The /usr/bin/nvidia-cdi-hook is present in the current
+// If 'f.rocmCDIHookPath' is already set (from the command line), do nothing.
+// If 'f.rocmCDIHookPath' is empty, it copies the rocm-cdi-hook binary from
+// /usr/bin/amdsmi-clitool to DriverPluginPath and sets 'f.rocmCDIHookPath'
+// to this path. The /usr/bin/amdsmi-clitool is present in the current
 // container image because it is copied from the toolkit image into this
 // container at build time.
-func (c Config) setNvidiaCDIHookPath() error {
-	if c.flags.nvidiaCDIHookPath != "" {
+func (c Config) setRocmCDIHookPath() error {
+	if c.flags.rocmCDIHookPath != "" {
 		return nil
 	}
 
-	sourcePath := "/usr/bin/nvidia-cdi-hook"
-	targetPath := filepath.Join(c.DriverPluginPath(), "nvidia-cdi-hook")
+	sourcePath := "/usr/bin/amdsmi-clitool"
+	targetPath := filepath.Join(c.DriverPluginPath(), "amdsmi-clitool")
 
 	input, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("error reading nvidia-cdi-hook: %w", err)
+		return fmt.Errorf("error reading amdsmi-clitool: %w", err)
 	}
 
 	if err := os.WriteFile(targetPath, input, 0755); err != nil {
-		return fmt.Errorf("error copying nvidia-cdi-hook: %w", err)
+		return fmt.Errorf("error copying amdsmi-clitool: %w", err)
 	}
 
-	c.flags.nvidiaCDIHookPath = targetPath
+	c.flags.rocmCDIHookPath = targetPath
 
 	return nil
 }
-

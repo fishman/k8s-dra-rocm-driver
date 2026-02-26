@@ -8,7 +8,7 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-# Source directory
+# Source directory for ROCm/Hami
 SOURCE_DIR="/usr/local/lib/hami/"
 
 # Destination directory from the argument
@@ -32,7 +32,7 @@ find "$SOURCE_DIR" -type f | while read -r source_file; do
     if [ ! -f "$dest_file" ]; then
         # Create the parent directory of the destination file if it doesn't exist
         mkdir -p "$(dirname "$dest_file")"
-        
+
         # Copy the file from source to destination
         cp "$source_file" "$dest_file"
         echo "Copied: $source_file -> $dest_file"

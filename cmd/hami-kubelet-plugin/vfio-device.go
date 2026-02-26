@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2025, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,13 +28,15 @@ import (
 	"k8s.io/klog/v2"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 	cdispec "tags.cncf.io/container-device-interface/specs-go"
+
+	goamdsmi "github.com/ROCm/amdsmi"
 )
 
 const (
 	kernelIommuGroupPath   = "/sys/kernel/iommu_groups"
 	vfioPciModule          = "vfio_pci"
 	vfioPciDriver          = "vfio-pci"
-	nvidiaDriver           = "nvidia"
+	rocmDriver             = "amdgpu"
 	hostRoot               = "/host-root"
 	sysModulesRoot         = "/sys/module"
 	pciDevicesRoot         = "/sys/bus/pci/devices"
@@ -50,26 +52,43 @@ type VfioPciManager struct {
 	containerDriverRoot string
 	hostDriverRoot      string
 	driver              string
-	nvlib               *deviceLib
-	nvidiaEnabled       bool
+	amdsmi              goamdsmi.AmdSmiHandle
+	rocmEnabled         bool
 }
 
-func NewVfioPciManager(containerDriverRoot string, hostDriverRoot string, nvlib *deviceLib, nvidiaEnabled bool) *VfioPciManager {
+func NewVfioPciManager(containerDriverRoot string, hostDriverRoot string, rocmEnabled bool) (*VfioPciManager, error) {
+	amdsmi := goamdsmi.NewAmdSmiHandle()
+
 	vm := &VfioPciManager{
 		containerDriverRoot: containerDriverRoot,
 		hostDriverRoot:      hostDriverRoot,
 		driver:              vfioPciDriver,
-		nvlib:               nvlib,
-		nvidiaEnabled:       nvidiaEnabled,
+		amdsmi:              amdsmi,
+		rocmEnabled:         rocmEnabled,
 	}
+
+	// Initialize AMDSMI
+	ret := amdsmi.AmdSmiInit()
+	if ret != goamdsmi.AMDSMI_STATUS_SUCCESS {
+		return nil, fmt.Errorf("failed to initialize AMDSMI: %v", ret)
+	}
+
 	if !vm.isVfioPCIModuleLoaded() {
 		err := vm.loadVfioPciModule()
 		if err != nil {
-			klog.Fatalf("failed to load vfio_pci module: %v", err)
+			amdsmi.AmdSmiShutDown()
+			return nil, fmt.Errorf("failed to load vfio_pci module: %v", err)
 		}
 	}
 
-	return vm
+	return vm, nil
+}
+
+// Shutdown properly shuts down the AMDSMI interface
+func (vm *VfioPciManager) Shutdown() {
+	if vm.amdsmi != nil {
+		vm.amdsmi.AmdSmiShutDown()
+	}
 }
 
 // PreChecks tests if vfio-pci device allocations can be used.
@@ -138,7 +157,7 @@ func (vm *VfioPciManager) WaitForGPUFree(ctx context.Context, info *VfioDeviceIn
 	ticker := time.NewTicker(gpuFreeCheckInterval)
 	defer ticker.Stop()
 
-	gpuDeviceNode := filepath.Join(vm.hostDriverRoot, "dev", fmt.Sprintf("nvidia%d", info.parent.minor))
+	gpuDeviceNode := filepath.Join(vm.hostDriverRoot, "dev", "dri", fmt.Sprintf("renderD%d", info.parent.minor))
 	for {
 		select {
 		case <-timeout:
@@ -157,17 +176,54 @@ func (vm *VfioPciManager) WaitForGPUFree(ctx context.Context, info *VfioDeviceIn
 	}
 }
 
-// Verify there are no VFs on the GPU.
+// Verify there are no VFs on the GPU using AMDSMI.
 func (vm *VfioPciManager) verifyDisabledVFs(pcieBusID string) error {
-	gpu, err := vm.nvlib.nvpci.GetGPUByPciBusID(pcieBusID)
-	if err != nil {
-		return err
+	// Get all GPU devices using AMDSMI
+	numDevices := uint32(0)
+	ret := vm.amdsmi.AmdSmiGetNumDevices(&numDevices)
+	if ret != goamdsmi.AMDSMI_STATUS_SUCCESS {
+		return fmt.Errorf("failed to get number of GPU devices: %v", ret)
 	}
-	numVFs := gpu.SriovInfo.PhysicalFunction.NumVFs
-	if numVFs > 0 {
-		return fmt.Errorf("gpu has %d VFs, cannot unbind", numVFs)
+
+	// Search for the device with matching PCIe bus ID
+	for i := uint32(0); i < numDevices; i++ {
+		deviceHandle, ret := vm.amdsmi.AmdSmiGetDeviceHandle(i)
+		if ret != goamdsmi.AMDSMI_STATUS_SUCCESS {
+			klog.Warningf("failed to get device handle for index %d: %v", i, ret)
+			continue
+		}
+
+		bdf := uint64(0)
+		ret = vm.amdsmi.AmdSmiGetDeviceBdf(deviceHandle, &bdf)
+		if ret != goamdsmi.AMDSMI_STATUS_SUCCESS {
+			klog.Warningf("failed to get BDF for device index %d: %v", i, ret)
+			continue
+		}
+
+		// Convert BDF to PCIe bus ID format (XXXX:XX:XX.X)
+		deviceBusID := fmt.Sprintf("%04x:%02x:%02x.%0x",
+			(bdf>>24)&0xFFFF,
+			(bdf>>12)&0xFF,
+			(bdf>>4)&0xFF,
+			bdf&0xF)
+
+		if deviceBusID == pcieBusID {
+			// Found the matching device, check SR-IOV status
+			// AMDSMI doesn't have a direct API for VFs, so we check the sysfs
+			sriovNumVFsPath := filepath.Join(pciDevicesRoot, pcieBusID, "sriov_numvfs")
+			numVFs := 0
+			if data, err := os.ReadFile(sriovNumVFsPath); err == nil {
+				fmt.Sscanf(string(data), "%d", &numVFs)
+			}
+
+			if numVFs > 0 {
+				return fmt.Errorf("gpu has %d VFs, cannot unbind", numVFs)
+			}
+			return nil
+		}
 	}
-	return nil
+
+	return fmt.Errorf("GPU with PCIe bus ID %s not found", pcieBusID)
 }
 
 // Configure binds the GPU to the vfio-pci driver.
@@ -182,9 +238,9 @@ func (vm *VfioPciManager) Configure(ctx context.Context, info *VfioDeviceInfo) e
 	if driver == vm.driver {
 		return nil
 	}
-	// Only support vfio-pci or nvidia (if vm.nvidiaEnabled) driver.
-	if !vm.nvidiaEnabled || driver != nvidiaDriver {
-		return fmt.Errorf("gpu is bound to %q driver, expected %q or %q", driver, vm.driver, nvidiaDriver)
+	// Only support vfio-pci or amdgpu (if vm.rocmEnabled) driver.
+	if !vm.rocmEnabled || driver != rocmDriver {
+		return fmt.Errorf("gpu is bound to %q driver, expected %q or %q", driver, vm.driver, rocmDriver)
 	}
 	err = vm.WaitForGPUFree(ctx, info)
 	if err != nil {
@@ -201,13 +257,13 @@ func (vm *VfioPciManager) Configure(ctx context.Context, info *VfioDeviceInfo) e
 	return nil
 }
 
-// Unconfigure binds the GPU to the nvidia driver.
+// Unconfigure binds the GPU to the amdgpu driver.
 func (vm *VfioPciManager) Unconfigure(ctx context.Context, info *VfioDeviceInfo) error {
 	perGpuLock.Get(info.pcieBusID).Lock()
 	defer perGpuLock.Get(info.pcieBusID).Unlock()
 
-	// Do nothing if we dont expect to switch to nvidia driver.
-	if !vm.nvidiaEnabled {
+	// Do nothing if we dont expect to switch to amdgpu driver.
+	if !vm.rocmEnabled {
 		return nil
 	}
 
@@ -215,10 +271,10 @@ func (vm *VfioPciManager) Unconfigure(ctx context.Context, info *VfioDeviceInfo)
 	if err != nil {
 		return err
 	}
-	if driver == nvidiaDriver {
+	if driver == rocmDriver {
 		return nil
 	}
-	err = vm.changeDriver(info.pcieBusID, nvidiaDriver)
+	err = vm.changeDriver(info.pcieBusID, rocmDriver)
 	if err != nil {
 		return err
 	}
@@ -276,7 +332,7 @@ func GetVfioCommonCDIContainerEdits() *cdiapi.ContainerEdits {
 	}
 }
 
-// GetCDIContainerEdits returns the CDI spec for a container to have access to the GPU while bound on vfio-pci driver.
+// GetVfioCDIContainerEdits returns the CDI spec for a container to have access to the GPU while bound on vfio-pci driver.
 func GetVfioCDIContainerEdits(info *VfioDeviceInfo) *cdiapi.ContainerEdits {
 	vfioDevicePath := filepath.Join(vfioDevicesRoot, fmt.Sprintf("%d", info.iommuGroup))
 	return &cdiapi.ContainerEdits{
@@ -299,4 +355,3 @@ func execCommandWithChroot(fsRoot, cmd string, args []string) ([]byte, error) {
 func execCommand(cmd string, args []string) ([]byte, error) {
 	return exec.Command(cmd, args...).CombinedOutput()
 }
-

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024-2026, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,50 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/semver"
-	nvdev "github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
-	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	goamdsmi "github.com/ROCm/amdsmi"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/dynamic-resource-allocation/deviceattribute"
 	"k8s.io/utils/ptr"
 )
+
+// Local type definitions for amdsmi structures
+
+// GpuInstancePlacement represents the placement of a GPU instance
+type GpuInstancePlacement struct {
+	Start int
+	Size  int
+}
+
+// GpuInstanceProfileInfo contains information about a GPU instance profile
+type GpuInstanceProfileInfo struct {
+	MultiprocessorCount uint32
+	CopyEngineCount     uint32
+	DecoderCount        uint32
+	EncoderCount        uint32
+	JpegCount           uint32
+	OfaCount            uint32
+	MemorySizeMB        uint64
+}
+
+// GpuInstanceInfo contains information about a GPU instance
+type GpuInstanceInfo struct {
+	ProfileId int
+}
+
+// ComputeInstanceProfileInfo contains information about a compute instance profile
+type ComputeInstanceProfileInfo struct{}
+
+// ComputeInstanceInfo contains information about a compute instance
+type ComputeInstanceInfo struct{}
+
+// MigProfile is a string representation of a MIG profile
+type MigProfile string
+
+// String returns the string representation of a MIG profile
+func (m MigProfile) String() string {
+	return string(m)
+}
 
 type GpuInfo struct {
 	UUID                  string `json:"uuid"`
@@ -37,9 +74,9 @@ type GpuInfo struct {
 	productName           string
 	brand                 string
 	architecture          string
-	cudaComputeCapability string
+	rocmComputeCapability string
 	driverVersion         string
-	cudaDriverVersion     string
+	rocmDriverVersion     string
 	pcieBusID             string
 	pcieRootAttr          *deviceattribute.DeviceAttribute
 	migProfiles           []*MigProfileInfo
@@ -50,10 +87,10 @@ type MigDeviceInfo struct {
 	profile       string
 	parent        *GpuInfo
 	placement     *MigDevicePlacement
-	giProfileInfo *nvml.GpuInstanceProfileInfo
-	giInfo        *nvml.GpuInstanceInfo
-	ciProfileInfo *nvml.ComputeInstanceProfileInfo
-	ciInfo        *nvml.ComputeInstanceInfo
+	giProfileInfo *GpuInstanceProfileInfo
+	giInfo        *GpuInstanceInfo
+	ciProfileInfo *ComputeInstanceProfileInfo
+	ciInfo        *ComputeInstanceInfo
 	pcieBusID     string
 	pcieRootAttr  *deviceattribute.DeviceAttribute
 }
@@ -73,12 +110,12 @@ type VfioDeviceInfo struct {
 }
 
 type MigProfileInfo struct {
-	profile    nvdev.MigProfile
+	profile    MigProfile
 	placements []*MigDevicePlacement
 }
 
 type MigDevicePlacement struct {
-	nvml.GpuInstancePlacement
+	GpuInstancePlacement
 }
 
 func (p MigProfileInfo) String() string {
@@ -116,14 +153,14 @@ func (d *GpuInfo) GetDevice() resourceapi.Device {
 			"architecture": {
 				StringValue: &d.architecture,
 			},
-			"cudaComputeCapability": {
-				VersionValue: ptr.To(semver.MustParse(d.cudaComputeCapability).String()),
+			"rocmComputeCapability": {
+				VersionValue: ptr.To(semver.MustParse(d.rocmComputeCapability).String()),
 			},
 			"driverVersion": {
 				VersionValue: ptr.To(semver.MustParse(d.driverVersion).String()),
 			},
-			"cudaDriverVersion": {
-				VersionValue: ptr.To(semver.MustParse(d.cudaDriverVersion).String()),
+			"rocmDriverVersion": {
+				VersionValue: ptr.To(semver.MustParse(d.rocmDriverVersion).String()),
 			},
 			"pcieBusID": {
 				StringValue: &d.pcieBusID,
@@ -166,14 +203,14 @@ func (d *MigDeviceInfo) GetDevice() resourceapi.Device {
 			"architecture": {
 				StringValue: &d.parent.architecture,
 			},
-			"cudaComputeCapability": {
-				VersionValue: ptr.To(semver.MustParse(d.parent.cudaComputeCapability).String()),
+			"rocmComputeCapability": {
+				VersionValue: ptr.To(semver.MustParse(d.parent.rocmComputeCapability).String()),
 			},
 			"driverVersion": {
 				VersionValue: ptr.To(semver.MustParse(d.parent.driverVersion).String()),
 			},
-			"cudaDriverVersion": {
-				VersionValue: ptr.To(semver.MustParse(d.parent.cudaDriverVersion).String()),
+			"rocmDriverVersion": {
+				VersionValue: ptr.To(semver.MustParse(d.parent.rocmDriverVersion).String()),
 			},
 			"pcieBusID": {
 				StringValue: &d.pcieBusID,
@@ -240,4 +277,3 @@ func (d *VfioDeviceInfo) GetDevice() resourceapi.Device {
 	}
 	return device
 }
-

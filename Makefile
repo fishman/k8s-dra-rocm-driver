@@ -57,23 +57,17 @@ $(CMD_TARGETS): cmd-%:
 	CGO_LDFLAGS_ALLOW='-Wl,--unresolved-symbols=ignore-in-object-files' \
 	CC=$(CC) CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 	go build -ldflags "-s -w \
-		-X github.com/NVIDIA/k8s-dra-driver-gpu/internal/info.version=${vNVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.nvversion=${NVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.version=${VERSION}" \
+		-X github.com/fishman/k8s-dra-rocm-driver/pkg/version.version=${VERSION}" \
 	$(COMMAND_BUILD_OPTIONS) $(MODULE)/cmd/$(*)
 
 build:
 	CC=$(CC) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "-s -w \
-		-X github.com/NVIDIA/k8s-dra-driver-gpu/internal/info.version=${vNVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.nvversion=${NVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.version=${VERSION}" \
+		-X github.com/fishman/k8s-dra-rocm-driver/pkg/version.version=${VERSION}" \
 	./...
 
 test:
 	CC=$(CC) GOOS=$(GOOS) GOARCH=$(GOARCH) go test -ldflags "-s -w \
-		-X github.com/NVIDIA/k8s-dra-driver-gpu/internal/info.version=${vNVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.nvversion=${NVVERSION} \
-		-X github.com/Project-HAMi/k8s-dra-driver/pkg/version.version=${VERSION}" \
+		-X github.com/fishman/k8s-dra-rocm-driver/pkg/version.version=${VERSION}" \
 	./...
 
 check: golangci-lint

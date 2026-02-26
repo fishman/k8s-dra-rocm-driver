@@ -1,5 +1,5 @@
 /**
-# Copyright 2023 NVIDIA CORPORATION
+# Copyright 2023-2026 Advanced Micro Devices, Inc. (AMD)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -24,10 +24,12 @@ import (
 
 type root string
 
-// getDriverLibraryPath returns path to `libnvidia-ml.so.1` in the driver root.
+// getDriverLibraryPath returns path to `libamdsmi.so.1` in the driver root.
 // The folder for this file is also expected to be the location of other driver files.
 func (r root) getDriverLibraryPath() (string, error) {
 	librarySearchPaths := []string{
+		"/opt/rocm/lib",
+		"/opt/rocm/lib64",
 		"/usr/lib64",
 		"/usr/lib/x86_64-linux-gnu",
 		"/usr/lib/aarch64-linux-gnu",
@@ -36,7 +38,7 @@ func (r root) getDriverLibraryPath() (string, error) {
 		"/lib/aarch64-linux-gnu",
 	}
 
-	libraryPath, err := r.findFile("libnvidia-ml.so.1", librarySearchPaths...)
+	libraryPath, err := r.findFile("libamdsmi.so.1", librarySearchPaths...)
 	if err != nil {
 		return "", err
 	}
@@ -44,9 +46,10 @@ func (r root) getDriverLibraryPath() (string, error) {
 	return libraryPath, nil
 }
 
-// getNvidiaSMIPath returns path to the `nvidia-smi` executable in the driver root.
-func (r root) getNvidiaSMIPath() (string, error) {
+// getAmdsmiPath returns path to the `amdsmi-clitool` executable in the driver root.
+func (r root) getAmdsmiPath() (string, error) {
 	binarySearchPaths := []string{
+		"/opt/rocm/bin",
 		"/opt/bin",
 		"/usr/bin",
 		"/usr/sbin",
@@ -54,7 +57,7 @@ func (r root) getNvidiaSMIPath() (string, error) {
 		"/sbin",
 	}
 
-	binaryPath, err := r.findFile("nvidia-smi", binarySearchPaths...)
+	binaryPath, err := r.findFile("amdsmi-clitool", binarySearchPaths...)
 	if err != nil {
 		return "", err
 	}

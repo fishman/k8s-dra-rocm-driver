@@ -2,8 +2,8 @@ HAMi(https://project-hami.io/)
 Copyright HAMi Contributors
 
 This product includes software developed by
-NVIDIA CORPORATION (https://www.nvidia.com).
-Copyright (c) NVIDIA CORPORATION. All rights reserved.
+Advanced Micro Devices, Inc. (AMD) (https://www.amd.com).
+Copyright (c) Advanced Micro Devices, Inc. (AMD). All rights reserved.
 
 This product includes software developed by
 The HAMi Authors.

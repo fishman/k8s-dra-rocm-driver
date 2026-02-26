@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2024-2026, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,10 +26,10 @@ type PreparedDeviceList []PreparedDevice
 type PreparedDevices []*PreparedDeviceGroup
 
 type PreparedDevice struct {
-	HAMiGpu *PreparedHAMiGpu   `json:"hami-gpu"`
-	Gpu  *PreparedGpu        `json:"gpu"`
-	Mig  *PreparedMigDevice  `json:"mig"`
-	Vfio *PreparedVfioDevice `json:"vfio"`
+	HAMiGpu *PreparedHAMiGpu    `json:"hami-gpu"`
+	Gpu     *PreparedGpu        `json:"gpu"`
+	Mig     *PreparedMigDevice  `json:"mig"`
+	Vfio    *PreparedVfioDevice `json:"vfio"`
 }
 
 type PreparedGpu struct {
@@ -223,4 +223,3 @@ func (d PreparedDevices) VfioDeviceUUIDs() []string {
 	slices.Sort(uuids)
 	return uuids
 }
-

@@ -3,14 +3,14 @@
 ## Prerequisite
 
 Running this demo requires the following software:
-* NVIDIA GPU Driver & CUDA
-* Docker & NVIDIA Container Toolkit & Runtime
+* AMD GPU Driver & ROCm
+* Docker & ROCm Container Toolkit & Runtime
 * kind (follow the official [installation docs](https://kind.sigs.k8s.io/docs/user/quick-start/#installation))
 
 ## Build Image
 
 ```Bash
-git clone https://github.com/Project-HAMi/k8s-dra-driver.git
+git clone https://github.com/fishman/k8s-rocm-dra-driver.git
 cd k8s-dra-driver
 make image
 ```
@@ -19,20 +19,20 @@ After building, you can find the projecthami/k8s-dra-driver:v0.0.1-dev image wit
 
 ## Configure container runtime
 
-Configure the NVIDIA Container Runtime as the default runtime:
+Configure the ROCm Container Runtime as the default runtime:
 ```Bash
-sudo nvidia-ctk runtime configure --runtime={docker|containerd|other runtime} --set-as-default
+sudo rocm-ctk runtime configure --runtime={docker|containerd|other runtime} --set-as-default
 ```
 
 Restart the container service to apply the changes
 ```Bash
 # Take docekr as an example
-sudo systemctl restart docker 
+sudo systemctl restart docker
 ```
 
-Set the accept-nvidia-visible-devices-as-volume-mounts option to true in the /etc/nvidia-container-runtime/config.toml file to configure the NVIDIA Container Runtime to use volume mounts to select devices to inject into a container.
+Set the accept-rocm-visible-devices-as-volume-mounts option to true in the /etc/rocm-container-runtime/config.toml file to configure the ROCm Container Runtime to use volume mounts to select devices to inject into a container.
 ```Bash
-sudo nvidia-ctk config --in-place --set accept-nvidia-visible-devices-as-volume-mounts=true
+sudo rocm-ctk config --in-place --set accept-rocm-visible-devices-as-volume-mounts=true
 ```
 
 ## Create cluster with kind

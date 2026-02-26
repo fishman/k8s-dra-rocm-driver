@@ -1,4 +1,4 @@
-VENDOR := nvidia.com
+VENDOR := amd.com
 
 API_BASE := api/$(VENDOR)
 PKG_BASE := pkg/$(VENDOR)

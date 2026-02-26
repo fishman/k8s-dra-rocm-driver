@@ -1,5 +1,6 @@
 /*
-Copyright 2025 The HAMi Authors.
+Copyright 2025-2026 The HAMi Authors.
+Copyright 2026 Advanced Micro Devices, Inc. (AMD)
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,23 +25,21 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/Masterminds/semver"
-	nvdev "github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
-	"github.com/Project-HAMi/k8s-dra-driver/pkg/featuregates"
+	goamdsmi "github.com/ROCm/amdsmi"
+	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/urfave/cli/v2"
 
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/klog/v2"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 	cdispec "tags.cncf.io/container-device-interface/specs-go"
 )
-
 
 // For deviceinfo.goh
 type HAMiGpuInfo struct {
@@ -75,14 +74,14 @@ func (d *HAMiGpuInfo) GetDevice() resourceapi.Device {
 			"architecture": {
 				StringValue: &d.architecture,
 			},
-			"cudaComputeCapability": {
-				VersionValue: ptr.To(semver.MustParse(d.cudaComputeCapability).String()),
+			"rocmComputeCapability": {
+				VersionValue: ptr.To(semver.MustParse(d.rocmComputeCapability).String()),
 			},
 			"driverVersion": {
 				VersionValue: ptr.To(semver.MustParse(d.driverVersion).String()),
 			},
-			"cudaDriverVersion": {
-				VersionValue: ptr.To(semver.MustParse(d.cudaDriverVersion).String()),
+			"rocmDriverVersion": {
+				VersionValue: ptr.To(semver.MustParse(d.rocmDriverVersion).String()),
 			},
 			"pcieBusID": {
 				StringValue: &d.pcieBusID,
@@ -95,8 +94,8 @@ func (d *HAMiGpuInfo) GetDevice() resourceapi.Device {
 				RequestPolicy: &resourceapi.CapacityRequestPolicy{
 					Default: resource.NewQuantity(int64(100), resource.DecimalSI),
 					ValidRange: &resourceapi.CapacityRequestPolicyRange{
-						Min: resource.NewQuantity(int64(0), resource.DecimalSI),
-						Max: resource.NewQuantity(int64(100), resource.DecimalSI),
+						Min:  resource.NewQuantity(int64(0), resource.DecimalSI),
+						Max:  resource.NewQuantity(int64(100), resource.DecimalSI),
 						Step: resource.NewQuantity(int64(1), resource.DecimalSI),
 					},
 				},
@@ -106,8 +105,8 @@ func (d *HAMiGpuInfo) GetDevice() resourceapi.Device {
 				RequestPolicy: &resourceapi.CapacityRequestPolicy{
 					Default: resource.NewQuantity(int64(d.memoryBytes), resource.BinarySI),
 					ValidRange: &resourceapi.CapacityRequestPolicyRange{
-						Min: resource.NewQuantity(int64(1048576), resource.BinarySI),
-						Max: resource.NewQuantity(int64(d.memoryBytes), resource.BinarySI),
+						Min:  resource.NewQuantity(int64(1048576), resource.BinarySI),
+						Max:  resource.NewQuantity(int64(d.memoryBytes), resource.BinarySI),
 						Step: resource.NewQuantity(int64(1048576), resource.BinarySI),
 					},
 				},
@@ -118,23 +117,21 @@ func (d *HAMiGpuInfo) GetDevice() resourceapi.Device {
 	return device
 }
 
-
-// For nvlib.go
+// enumerateGpusDevicesForHAMiCore enumerates GPU devices using integer indices
+// Uses amdsmi library for device information retrieval
 func (l deviceLib) enumerateGpusDevicesForHAMiCore(config *Config) (AllocatableDevices, error) {
-	if err := l.Init(); err != nil {
-		return nil, err
-	}
-	defer l.alwaysShutdown()
+	// Get number of GPUs
+	numDevices := goamdsmi.GO_gpu_num_monitor_devices()
 
-	// splitCount := config.flags.hamiCoreDevSplitCount
 	devices := make(AllocatableDevices)
-	err := l.VisitDevices(func(i int, d nvdev.Device) error {
-		gpuInfo, err := l.getGpuInfo(i, d)
+
+	// Iterate through GPUs using integer indices
+	for i := uint32(0); i < uint32(numDevices); i++ {
+		gpuInfo, err := l.getGpuInfo(i)
 		if err != nil {
-			return fmt.Errorf("error getting info for GPU %d: %w", i, err)
+			return nil, fmt.Errorf("error getting info for GPU %d: %w", i, err)
 		}
 
-		// for idx := range splitCount {
 		hamiGpuInfo := &HAMiGpuInfo{
 			GpuInfo: GpuInfo{
 				UUID:                  gpuInfo.UUID,
@@ -144,9 +141,9 @@ func (l deviceLib) enumerateGpusDevicesForHAMiCore(config *Config) (AllocatableD
 				productName:           gpuInfo.productName,
 				brand:                 gpuInfo.brand,
 				architecture:          gpuInfo.architecture,
-				cudaComputeCapability: gpuInfo.cudaComputeCapability,
+				rocmComputeCapability: gpuInfo.rocmComputeCapability,
 				driverVersion:         gpuInfo.driverVersion,
-				cudaDriverVersion:     gpuInfo.cudaDriverVersion,
+				rocmDriverVersion:     gpuInfo.rocmDriverVersion,
 				pcieBusID:             gpuInfo.pcieBusID,
 				pcieRootAttr:          gpuInfo.pcieRootAttr,
 				migProfiles:           gpuInfo.migProfiles,
@@ -157,12 +154,6 @@ func (l deviceLib) enumerateGpusDevicesForHAMiCore(config *Config) (AllocatableD
 		}
 		name := hamiGpuInfo.CanonicalName()
 		devices[name] = deviceInfo
-		// }
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error visiting devices: %w", err)
 	}
 
 	// Debug:
@@ -205,12 +196,12 @@ func (g *PreparedDeviceGroup) HAMIGpuUUIDs() []string {
 // For sharing.go
 type HAMiCoreManager struct {
 	hostHookPath string
-	nvdevlib     *deviceLib
+	amddevlib    *deviceLib
 }
 
 func NewHAMiCoreManager(deviceLib *deviceLib) *HAMiCoreManager {
 	return &HAMiCoreManager{
-		nvdevlib:     deviceLib,
+		amddevlib:    deviceLib,
 		hostHookPath: "/usr/local",
 	}
 }
@@ -246,32 +237,32 @@ func (m *HAMiCoreManager) GetCDIContainerEdits(claim *resourceapi.ResourceClaim,
 
 	hamiEnvs := []string{}
 	// TOOD: Get SM Limit from Claim's Annotation
-	hamiEnvs = append(hamiEnvs, fmt.Sprintf("CUDA_DEVICE_MEMORY_SHARED_CACHE=%s", fmt.Sprintf("%s/%v.cache", cacheFileHostDirectory, uuid.New().String())))
+	hamiEnvs = append(hamiEnvs, fmt.Sprintf("ROCM_DEVICE_MEMORY_SHARED_CACHE=%s", fmt.Sprintf("%s/%v.cache", cacheFileHostDirectory, uuid.New().String())))
 
 	devCapMap := m.getConsumableCapacityMap(claim)
 	idx := 0
 	for name, dev := range devs {
-		// TODO: The idx here may not equals to the index in nvidia-smi, So we need to find a solution to solve it
+		// TODO: The idx here may not equals to the index in amdsmi, So we need to find a solution to solve it
 		klog.Warningf("HAMiCoreManager GetCDIContainerEdits for dev: %s\n", name)
 		capNameSMLimit := resourceapi.QualifiedName("cores")
 		capNameMemoryLimit := resourceapi.QualifiedName("memory")
-		SMLimitEnv := fmt.Sprintf("CUDA_DEVICE_SM_LIMIT_%d=%s", idx, "60")
+		SMLimitEnv := fmt.Sprintf("ROCM_DEVICE_SM_LIMIT_%d=%s", idx, "60")
 		memoryLimit := string(strconv.FormatUint(dev.HAMiGpu.memoryBytes/1024/1024, 10)) + "m"
-		MemoryLimitEnv := fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%d=%s", idx, memoryLimit)
+		MemoryLimitEnv := fmt.Sprintf("ROCM_DEVICE_MEMORY_LIMIT_%d=%s", idx, memoryLimit)
 		// TODO: Loop in a map getting from HAMiCoreManager
 		if _, ok := devCapMap[name]; ok {
 			if _, ok := devCapMap[name][capNameSMLimit]; ok {
 				q := devCapMap[name][capNameSMLimit]
 				val, succ := q.AsInt64()
 				if succ {
-					SMLimitEnv = fmt.Sprintf("CUDA_DEVICE_SM_LIMIT_%d=%s", idx, strconv.FormatInt(val, 10))
+					SMLimitEnv = fmt.Sprintf("ROCM_DEVICE_SM_LIMIT_%d=%s", idx, strconv.FormatInt(val, 10))
 				}
 			}
 			if _, ok := devCapMap[name][capNameMemoryLimit]; ok {
 				q := devCapMap[name][capNameMemoryLimit]
 				val, succ := q.AsInt64()
 				if succ {
-					MemoryLimitEnv = fmt.Sprintf("CUDA_DEVICE_MEMORY_LIMIT_%d=%s", idx, strconv.FormatInt(val/1024/1024, 10)+"m")
+					MemoryLimitEnv = fmt.Sprintf("ROCM_DEVICE_MEMORY_LIMIT_%d=%s", idx, strconv.FormatInt(val/1024/1024, 10)+"m")
 				}
 			}
 		}
@@ -293,7 +284,7 @@ func (m *HAMiCoreManager) GetCDIContainerEdits(claim *resourceapi.ResourceClaim,
 					HostPath:      m.hostHookPath + "/vgpu/libvgpu.so",
 					Options:       []string{"ro", "nosuid", "nodev", "bind"},
 				},
-				// TODO: Check CUDA_DISABLE_CONTROL env before mount ld.so.preload
+				// TODO: Check ROCM_DISABLE_CONTROL env before mount ld.so.preload
 				{
 					ContainerPath: "/etc/ld.so.preload",
 					HostPath:      m.hostHookPath + "/vgpu/ld.so.preload",
@@ -330,12 +321,19 @@ func newFeatureGateConfig() *FeatureGateConfig {
 func (f *FeatureGateConfig) Flags() []cli.Flag {
 	var fs pflag.FlagSet
 
+	// TODO: Feature gates not implemented - featuregates package removed
 	// Add the unified feature gates flag containing both project and logging features
+	// fs.AddFlag(&pflag.Flag{
+	// 	Name: "feature-gates",
+	// 	Usage: "A set of key=value pairs that describe feature gates for alpha/experimental features. " +
+	// 		"Options are:\n     " + strings.Join(featuregates.KnownFeatures(), "\n     "),
+	// 	Value: featuregates.FeatureGates.(pflag.Value), //nolint:forcetypeassert // No need for type check: FeatureGates is a *featuregate.featureGate, which implements pflag.Value.
+	// })
+
+	// For now, add a simple feature-gates flag as a placeholder
 	fs.AddFlag(&pflag.Flag{
-		Name: "feature-gates",
-		Usage: "A set of key=value pairs that describe feature gates for alpha/experimental features. " +
-			"Options are:\n     " + strings.Join(featuregates.KnownFeatures(), "\n     "),
-		Value: featuregates.FeatureGates.(pflag.Value), //nolint:forcetypeassert // No need for type check: FeatureGates is a *featuregate.featureGate, which implements pflag.Value.
+		Name:  "feature-gates",
+		Usage: "Feature gates - not implemented in this version",
 	})
 
 	var flags []cli.Flag

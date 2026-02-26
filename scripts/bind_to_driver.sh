@@ -2,6 +2,7 @@
 
 # Usage: ./bind_to_driver.sh <ssss:bb:dd.f> <driver>
 # Bind the GPU specified by the PCI_ID=ssss:bb:dd.f to the given driver.
+# For AMD/ROCm GPUs, the driver is typically 'amdgpu' or 'vfio-pci'.
 
 bind_to_driver()
 {

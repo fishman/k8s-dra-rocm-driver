@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 NVIDIA CORPORATION.
+ * Copyright 2024-2026 Advanced Micro Devices, Inc. (AMD).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -415,4 +415,3 @@ func TestFeatureGateErrorHandling(t *testing.T) {
 		require.False(t, fg.Enabled(TestAlphaFeature1), "Feature state should be unchanged after failed mixed operation")
 	})
 }
-

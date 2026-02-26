@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2024, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2022-2026, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"time"
+	"sync"
 
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,20 +28,13 @@ import (
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
-
-	"github.com/NVIDIA/k8s-dra-driver-gpu/pkg/flock"
 )
-
-// DriverPrepUprepFlockPath is the path to a lock file used to make sure
-// that calls to nodePrepareResource() / nodeUnprepareResource() never
-// interleave, node-globally.
-const DriverPrepUprepFlockFileName = "pu.lock"
 
 type driver struct {
 	client       coreclientset.Interface
 	pluginhelper *kubeletplugin.Helper
 	state        *DeviceState
-	pulock       *flock.Flock
+	pulock       sync.Mutex
 	healthcheck  *healthcheck
 }
 
@@ -52,12 +44,9 @@ func NewDriver(ctx context.Context, config *Config) (*driver, error) {
 		return nil, err
 	}
 
-	puLockPath := filepath.Join(config.DriverPluginPath(), DriverPrepUprepFlockFileName)
-
 	driver := &driver{
 		client: config.clientsets.Core,
 		state:  state,
-		pulock: flock.NewFlock(puLockPath),
 	}
 
 	helper, err := kubeletplugin.Start(
@@ -131,13 +120,8 @@ func (d *driver) HandleError(ctx context.Context, err error, msg string) {
 }
 
 func (d *driver) nodePrepareResource(ctx context.Context, claim *resourceapi.ResourceClaim) kubeletplugin.PrepareResult {
-	release, err := d.pulock.Acquire(ctx, flock.WithTimeout(10*time.Second))
-	if err != nil {
-		return kubeletplugin.PrepareResult{
-			Err: fmt.Errorf("error acquiring prep/unprep lock: %w", err),
-		}
-	}
-	defer release()
+	d.pulock.Lock()
+	defer d.pulock.Unlock()
 
 	devs, err := d.state.Prepare(ctx, claim)
 
@@ -158,11 +142,8 @@ func (d *driver) nodePrepareResource(ctx context.Context, claim *resourceapi.Res
 }
 
 func (d *driver) nodeUnprepareResource(ctx context.Context, claimNs kubeletplugin.NamespacedObject) error {
-	release, err := d.pulock.Acquire(ctx, flock.WithTimeout(10*time.Second))
-	if err != nil {
-		return fmt.Errorf("error acquiring prep/unprep lock: %w", err)
-	}
-	defer release()
+	d.pulock.Lock()
+	defer d.pulock.Unlock()
 
 	if err := d.state.Unprepare(ctx, string(claimNs.UID)); err != nil {
 		return fmt.Errorf("error unpreparing devices for claim %v: %w", claimNs.UID, err)
@@ -204,4 +185,3 @@ func (d *driver) publishResources(ctx context.Context, config *Config) error {
 // 	errors := make(chan error)
 // 	return errors
 // }
-

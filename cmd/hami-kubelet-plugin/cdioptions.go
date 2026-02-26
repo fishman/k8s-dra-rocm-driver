@@ -1,5 +1,5 @@
 /*
-# Copyright 2023 NVIDIA CORPORATION
+# Copyright 2023-2026 Advanced Micro Devices, Inc. (AMD)
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,8 +17,7 @@
 package main
 
 import (
-	nvdevice "github.com/NVIDIA/go-nvlib/pkg/nvlib/device"
-	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	goamdsmi "github.com/ROCm/amdsmi"
 )
 
 // cdiOption represents a functional option for constructing a CDI handler.
@@ -31,7 +30,7 @@ func WithDriverRoot(root string) cdiOption {
 	}
 }
 
-// WithDevRoot provides a cdiOption to set the device root used by the 'cdi' interface.
+// WithDevRoot provides an cdiOption to set the device root used by the 'cdi' interface.
 func WithDevRoot(root string) cdiOption {
 	return func(c *CDIHandler) {
 		c.devRoot = root
@@ -52,24 +51,24 @@ func WithCDIRoot(cdiRoot string) cdiOption {
 	}
 }
 
-// WithNVIDIACDIHookPath provides an cdiOption to set the nvidia-cdi-hook path used by the 'cdi' interface.
-func WithNVIDIACDIHookPath(path string) cdiOption {
+// WithROCMCDIHookPath provides an cdiOption to set the rocm-cdi-hook path used by the 'cdi' interface.
+func WithROCMCDIHookPath(path string) cdiOption {
 	return func(c *CDIHandler) {
-		c.nvidiaCDIHookPath = path
+		c.rocmCDIHookPath = path
 	}
 }
 
-// WithNvml provides an cdiOption to set the NVML library used by the 'cdi' interface.
-func WithNvml(nvml nvml.Interface) cdiOption {
+// WithAMDSMI provides an cdiOption to set the AMDSMI library used by the 'cdi' interface.
+func WithAMDSMI(amdsmi goamdsmi.Interface) cdiOption {
 	return func(c *CDIHandler) {
-		c.nvml = nvml
+		c.amdsmi = amdsmi
 	}
 }
 
 // WithDeviceLib provides and Optin to set the device enumeration and query library.
-func WithDeviceLib(nvdevice nvdevice.Interface) cdiOption {
+func WithDeviceLib(amddevice goamdsmi.Interface) cdiOption {
 	return func(c *CDIHandler) {
-		c.nvdevice = nvdevice
+		c.amddevice = amddevice
 	}
 }
 

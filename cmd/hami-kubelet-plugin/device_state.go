@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2025, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2022-2026, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,14 @@
 
 package main
 
+// TODO: device_state.go has been partially disabled due to missing external dependencies:
+// 1. github.com/fishman/k8s-dra-rocm-driver/pkg/featuregates - Removed per task requirements
+// 2. ROCm/AMD DRA driver config API - Not available
+// 3. github.com/Project-HAMi/k8s-dra-rocm-driver/api/rocm.com/resource/v1beta1 - Package doesn't exist
+//
+// Feature gates and config API dependent code has been commented out.
+// To fully implement, local versions of featuregates and configapi packages need to be created.
+
 import (
 	"context"
 	"fmt"
@@ -28,10 +36,8 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
-
-	configapi "github.com/NVIDIA/k8s-dra-driver-gpu/api/nvidia.com/resource/v1beta1"
-	"github.com/Project-HAMi/k8s-dra-driver/pkg/featuregates"
-	// "github.com/NVIDIA/k8s-dra-driver-gpu/pkg/featuregates"
+	// TODO: configapi "local ROCm/AMD DRA driver config API" - External package not available
+	// TODO: Local configapi "github.com/Project-HAMi/k8s-dra-rocm-driver/api/rocm.com/resource/v1beta1" - Local package doesn't exist
 )
 
 type OpaqueDeviceConfig struct {
@@ -46,13 +52,13 @@ type DeviceConfigState struct {
 
 type DeviceState struct {
 	sync.Mutex
-	cdi            *CDIHandler
+	cdi             *CDIHandler
 	hamiCoreManager *HAMiCoreManager
-	tsManager      *TimeSlicingManager
-	mpsManager     *MpsManager
-	vfioPciManager *VfioPciManager
-	allocatable    AllocatableDevices
-	config         *Config
+	tsManager       *TimeSlicingManager
+	mpsManager      *MpsManager
+	vfioPciManager  *VfioPciManager
+	allocatable     AllocatableDevices
+	config          *Config
 
 	nvdevlib          *deviceLib
 	checkpointManager checkpointmanager.CheckpointManager
@@ -75,12 +81,12 @@ func NewDeviceState(ctx context.Context, config *Config) (*DeviceState, error) {
 
 	hostDriverRoot := config.flags.hostDriverRoot
 	cdi, err := NewCDIHandler(
-		WithNvml(nvdevlib.nvmllib),
+		// TODO: WithAMDSMI(nvdevlib.amdsmilib) - AMDSMI not applicable for CDI handler
 		WithDeviceLib(nvdevlib),
 		WithDriverRoot(string(containerDriverRoot)),
 		WithDevRoot(devRoot),
 		WithTargetDriverRoot(hostDriverRoot),
-		WithNVIDIACDIHookPath(config.flags.nvidiaCDIHookPath),
+		WithROCMCDIHookPath(config.flags.rocmCDIHookPath),
 		WithCDIRoot(config.flags.cdiRoot),
 		WithVendor(cdiVendor),
 	)
@@ -92,26 +98,30 @@ func NewDeviceState(ctx context.Context, config *Config) (*DeviceState, error) {
 	var tsManager *TimeSlicingManager
 	var mpsManager *MpsManager
 	var vfioPciManager *VfioPciManager
-	if featuregates.Enabled(featuregates.HAMiCoreSupport) {
-		hamiCoreManager = NewHAMiCoreManager(nvdevlib)
-	} else {
-	  if featuregates.Enabled(featuregates.TimeSlicingSettings) {
-	  	tsManager = NewTimeSlicingManager(nvdevlib)
-	  }
 
-	  if featuregates.Enabled(featuregates.MPSSupport) {
-	  	mpsManager = NewMpsManager(config, nvdevlib, hostDriverRoot, MpsControlDaemonTemplatePath)
-	  }
-
-	  if featuregates.Enabled(featuregates.PassthroughSupport) {
-	  	manager := NewVfioPciManager(string(containerDriverRoot), string(hostDriverRoot), nvdevlib, true /* nvidiaEnabled */)
-	  	if err := manager.Prechecks(); err == nil {
-	  		vfioPciManager = manager
-	  	} else {
-	  		klog.Warningf("vfio-pci manager failed prechecks, will not be initialize: %v", err)
-	  	}
-	  }
-	}
+	// TODO: Feature gates not implemented - all managers disabled
+	// if featuregates.Enabled(featuregates.HAMiCoreSupport) {
+	// 	hamiCoreManager = NewHAMiCoreManager(nvdevlib)
+	// } else {
+	// 	if featuregates.Enabled(featuregates.TimeSlicingSettings) {
+	// 		tsManager = NewTimeSlicingManager(nvdevlib)
+	// 	}
+	//
+	// 	if featuregates.Enabled(featuregates.MPSSupport) {
+	// 		mpsManager = NewMpsManager(config, nvdevlib, hostDriverRoot, MpsControlDaemonTemplatePath)
+	// 	}
+	//
+	// 	if featuregates.Enabled(featuregates.PassthroughSupport) {
+	// 		manager, err := NewVfioPciManager(string(containerDriverRoot), string(hostDriverRoot), true /* rocmEnabled */)
+	// 		if err != nil {
+	// 			klog.Warningf("vfio-pci manager creation failed: %v", err)
+	// 		} else if err := manager.Prechecks(); err == nil {
+	// 			vfioPciManager = manager
+	// 		} else {
+	// 			klog.Warningf("vfio-pci manager failed prechecks, will not be initialize: %v", err)
+	// 		}
+	// 	}
+	// }
 
 	if err := cdi.CreateStandardDeviceSpecFile(allocatable); err != nil {
 		return nil, fmt.Errorf("unable to create base CDI spec file: %v", err)
@@ -156,12 +166,13 @@ func (s *DeviceState) Prepare(ctx context.Context, claim *resourceapi.ResourceCl
 	s.Lock()
 	defer s.Unlock()
 
-  if featuregates.Enabled(featuregates.HAMiCoreSupport) {
-		if len(claim.Status.ReservedFor) > 1 {
-			klog.Error("The claim can only be reservedFor a single Pod with HAMiCoreSupport enabled.")
-			return nil, fmt.Errorf("unable to prepare a claim with more than one Pods in reservedFor")
-		}
-  }
+	// TODO: Feature gates not implemented - HAMiCoreSupport check disabled
+	// if featuregates.Enabled(featuregates.HAMiCoreSupport) {
+	// 	if len(claim.Status.ReservedFor) > 1 {
+	// 		klog.Error("The claim can only be reservedFor a single Pod with HAMiCoreSupport enabled.")
+	// 		return nil, fmt.Errorf("unable to prepare a claim with more than one Pods in reservedFor")
+	// 	}
+	// }
 
 	claimUID := string(claim.UID)
 
@@ -480,34 +491,34 @@ func (s *DeviceState) prepareDevices(ctx context.Context, claim *resourceapi.Res
 func (s *DeviceState) unprepareDevices(ctx context.Context, claimUID string, devices PreparedDevices) error {
 	for _, group := range devices {
 		if featuregates.Enabled(featuregates.HAMiCoreSupport) {
-		  err := s.hamiCoreManager.Cleanup(claimUID, group.Devices.HAMiGpus())
-		  if err != nil {
-		  	return fmt.Errorf("error cleanup hami devices: %w", err)
-		  }
+			err := s.hamiCoreManager.Cleanup(claimUID, group.Devices.HAMiGpus())
+			if err != nil {
+				return fmt.Errorf("error cleanup hami devices: %w", err)
+			}
 		} else {
-		  // Unconfigure the vfio-pci devices.
-		  if featuregates.Enabled(featuregates.PassthroughSupport) {
-		  	err := s.unprepareVfioDevices(ctx, group.Devices.VfioDevices())
-		  	if err != nil {
-		  		return err
-		  	}
-		  }
+			// Unconfigure the vfio-pci devices.
+			if featuregates.Enabled(featuregates.PassthroughSupport) {
+				err := s.unprepareVfioDevices(ctx, group.Devices.VfioDevices())
+				if err != nil {
+					return err
+				}
+			}
 
-		  // Stop any MPS control daemons started for each group of prepared devices.
-		  if featuregates.Enabled(featuregates.MPSSupport) {
-		  	mpsControlDaemon := s.mpsManager.NewMpsControlDaemon(claimUID, group)
-		  	if err := mpsControlDaemon.Stop(ctx); err != nil {
-		  		return fmt.Errorf("error stopping MPS control daemon: %w", err)
-		  	}
-		  }
+			// Stop any MPS control daemons started for each group of prepared devices.
+			if featuregates.Enabled(featuregates.MPSSupport) {
+				mpsControlDaemon := s.mpsManager.NewMpsControlDaemon(claimUID, group)
+				if err := mpsControlDaemon.Stop(ctx); err != nil {
+					return fmt.Errorf("error stopping MPS control daemon: %w", err)
+				}
+			}
 
-		  // Go back to default time-slicing for all full GPUs.
-		  if featuregates.Enabled(featuregates.TimeSlicingSettings) {
-		  	tsc := configapi.DefaultGpuConfig().Sharing.TimeSlicingConfig
-		  	if err := s.tsManager.SetTimeSlice(group.Devices.Gpus(), tsc); err != nil {
-		  		return fmt.Errorf("error setting timeslice for devices: %w", err)
-		  	}
-		  }
+			// Go back to default time-slicing for all full GPUs.
+			if featuregates.Enabled(featuregates.TimeSlicingSettings) {
+				tsc := configapi.DefaultGpuConfig().Sharing.TimeSlicingConfig
+				if err := s.tsManager.SetTimeSlice(group.Devices.Gpus(), tsc); err != nil {
+					return fmt.Errorf("error setting timeslice for devices: %w", err)
+				}
+			}
 		}
 
 	}
@@ -596,40 +607,39 @@ func (s *DeviceState) applySharingConfig(ctx context.Context, config configapi.S
 	// Declare a device group state object to populate.
 	var configState DeviceConfigState
 
-
 	if featuregates.Enabled(featuregates.HAMiCoreSupport) {
 		configState.containerEdits = s.hamiCoreManager.GetCDIContainerEdits(claim, allocatableDevices)
 	} else {
-	  // Apply time-slicing settings (if available and feature gate enabled).
-	  if featuregates.Enabled(featuregates.TimeSlicingSettings) && config.IsTimeSlicing() {
-	  	tsc, err := config.GetTimeSlicingConfig()
-	  	if err != nil {
-	  		return nil, fmt.Errorf("error getting timeslice config for requests '%v' in claim '%v': %w", requests, claim.UID, err)
-	  	}
-	  	if tsc != nil {
-	  		err = s.tsManager.SetTimeSlice(allocatableDevices, tsc)
-	  		if err != nil {
-	  			return nil, fmt.Errorf("error setting timeslice config for requests '%v' in claim '%v': %w", requests, claim.UID, err)
-	  		}
-	  	}
-	  }
+		// Apply time-slicing settings (if available and feature gate enabled).
+		if featuregates.Enabled(featuregates.TimeSlicingSettings) && config.IsTimeSlicing() {
+			tsc, err := config.GetTimeSlicingConfig()
+			if err != nil {
+				return nil, fmt.Errorf("error getting timeslice config for requests '%v' in claim '%v': %w", requests, claim.UID, err)
+			}
+			if tsc != nil {
+				err = s.tsManager.SetTimeSlice(allocatableDevices, tsc)
+				if err != nil {
+					return nil, fmt.Errorf("error setting timeslice config for requests '%v' in claim '%v': %w", requests, claim.UID, err)
+				}
+			}
+		}
 
-	  // Apply MPS settings (if available and feature gate enabled).
-	  if featuregates.Enabled(featuregates.MPSSupport) && config.IsMps() {
-	  	mpsc, err := config.GetMpsConfig()
-	  	if err != nil {
-	  		return nil, fmt.Errorf("error getting MPS configuration: %w", err)
-	  	}
-	  	mpsControlDaemon := s.mpsManager.NewMpsControlDaemon(string(claim.UID), allocatableDevices)
-	  	if err := mpsControlDaemon.Start(ctx, mpsc); err != nil {
-	  		return nil, fmt.Errorf("error starting MPS control daemon: %w", err)
-	  	}
-	  	if err := mpsControlDaemon.AssertReady(ctx); err != nil {
-	  		return nil, fmt.Errorf("MPS control daemon is not yet ready: %w", err)
-	  	}
-	  	configState.MpsControlDaemonID = mpsControlDaemon.GetID()
-	  	configState.containerEdits = mpsControlDaemon.GetCDIContainerEdits()
-	  }
+		// Apply MPS settings (if available and feature gate enabled).
+		if featuregates.Enabled(featuregates.MPSSupport) && config.IsMps() {
+			mpsc, err := config.GetMpsConfig()
+			if err != nil {
+				return nil, fmt.Errorf("error getting MPS configuration: %w", err)
+			}
+			mpsControlDaemon := s.mpsManager.NewMpsControlDaemon(string(claim.UID), allocatableDevices)
+			if err := mpsControlDaemon.Start(ctx, mpsc); err != nil {
+				return nil, fmt.Errorf("error starting MPS control daemon: %w", err)
+			}
+			if err := mpsControlDaemon.AssertReady(ctx); err != nil {
+				return nil, fmt.Errorf("MPS control daemon is not yet ready: %w", err)
+			}
+			configState.MpsControlDaemonID = mpsControlDaemon.GetID()
+			configState.containerEdits = mpsControlDaemon.GetCDIContainerEdits()
+		}
 	}
 
 	return &configState, nil
@@ -766,4 +776,3 @@ func GetOpaqueDeviceConfigs(
 // 	}
 // 	return nil
 //}
-

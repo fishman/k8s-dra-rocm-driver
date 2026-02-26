@@ -28,7 +28,7 @@ VERSION  ?= v0.0.1-dev
 vVERSION := v$(VERSION:v%=%)
 
 # The image to build hami-core lib
-HAMI_CORE_BUILD_IMAGE=nvidia/cuda:12.3.2-devel-ubuntu20.04
+HAMI_CORE_BUILD_IMAGE=rocm/dev-ubuntu-22.04:6.0
 
 GOLANG_VERSION := $(shell ./hack/golang-version.sh)
 TOOLKIT_CONTAINER_IMAGE := $(shell ./hack/toolkit-container-image.sh)

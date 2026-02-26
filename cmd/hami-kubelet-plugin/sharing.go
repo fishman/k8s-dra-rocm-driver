@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023, NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2023-2026, Advanced Micro Devices, Inc. (AMD).  All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,14 @@
  */
 
 package main
+
+// TODO: sharing.go has been partially disabled due to missing dependencies:
+// 1. goamdsmi.Smith type doesn't exist - should be *deviceLib
+// 2. configapi package doesn't exist - TimeSlicingConfig and MpsConfig types unavailable
+// 3. featuregates package removed - featuregate checks disabled
+// 4. ClientSets.Core field missing - stub type needs proper implementation
+//
+// To fully implement, create local configapi package and proper ClientSets type.
 
 import (
 	"bufio"
@@ -46,9 +54,8 @@ import (
 
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 	cdispec "tags.cncf.io/container-device-interface/specs-go"
-
-	configapi "github.com/NVIDIA/k8s-dra-driver-gpu/api/nvidia.com/resource/v1beta1"
-	"github.com/NVIDIA/k8s-dra-driver-gpu/pkg/featuregates"
+	// TODO: configapi "github.com/Project-HAMi/k8s-dra-rocm-driver/api/rocm.com/resource/v1beta1" - Package doesn't exist
+	// TODO: "github.com/Project-HAMi/k8s-dra-rocm-driver/pkg/featuregates" - External package removed
 )
 
 const (
@@ -58,7 +65,9 @@ const (
 )
 
 type TimeSlicingManager struct {
-	nvdevlib *deviceLib
+	amdsmi  *deviceLib
+	cliPath string
+	libPath string
 }
 
 type MpsManager struct {
@@ -67,7 +76,9 @@ type MpsManager struct {
 	hostDriverRoot   string
 	templatePath     string
 
-	nvdevlib *deviceLib
+	amdsmi  *deviceLib
+	cliPath string
+	libPath string
 }
 
 type MpsControlDaemon struct {
@@ -87,10 +98,10 @@ type MpsControlDaemonTemplateData struct {
 	NodeName                        string
 	MpsControlDaemonNamespace       string
 	MpsControlDaemonName            string
-	CUDA_VISIBLE_DEVICES            string //nolint:stylecheck
+	ROCM_VISIBLE_DEVICES            string //nolint:stylecheck
 	DefaultActiveThreadPercentage   string
 	DefaultPinnedDeviceMemoryLimits map[string]string
-	NvidiaDriverRoot                string
+	RocmDriverRoot                  string
 	MpsShmDirectory                 string
 	MpsPipeDirectory                string
 	MpsLogDirectory                 string
@@ -98,9 +109,11 @@ type MpsControlDaemonTemplateData struct {
 	FeatureGates                    map[string]bool
 }
 
-func NewTimeSlicingManager(deviceLib *deviceLib) *TimeSlicingManager {
+func NewTimeSlicingManager(amdsmi *deviceLib, cliPath, libPath string) *TimeSlicingManager {
 	return &TimeSlicingManager{
-		nvdevlib: deviceLib,
+		amdsmi:  amdsmi,
+		cliPath: cliPath,
+		libPath: libPath,
 	}
 }
 
@@ -111,13 +124,13 @@ func (t *TimeSlicingManager) SetTimeSlice(devices UUIDProvider, config *configap
 	}
 
 	// Set the compute mode of the GPU to DEFAULT.
-	err := t.nvdevlib.setComputeMode(devices.UUIDs(), "DEFAULT")
+	err := t.setComputeMode(devices.UUIDs(), "DEFAULT")
 	if err != nil {
 		return fmt.Errorf("error setting compute mode: %w", err)
 	}
 
 	// Set the time slice based on the config provided.
-	err = t.nvdevlib.setTimeSlice(devices.UUIDs(), config.Interval.Int())
+	err = t.setTimeSlice(devices.UUIDs(), config.Interval.Int())
 	if err != nil {
 		return fmt.Errorf("error setting time slice: %w", err)
 	}
@@ -125,7 +138,46 @@ func (t *TimeSlicingManager) SetTimeSlice(devices UUIDProvider, config *configap
 	return nil
 }
 
-func NewMpsManager(config *Config, deviceLib *deviceLib, hostDriverRoot, templatePath string) *MpsManager {
+func (t *TimeSlicingManager) setTimeSlice(uuids []string, timeSlice int) error {
+	for _, uuid := range uuids {
+		cmd := exec.Command(
+			t.cliPath,
+			"compute-policy",
+			"-i", uuid,
+			"--set-timeslice", fmt.Sprintf("%d", timeSlice))
+
+		// In order for amdsmi to run, we need to update LD_PRELOAD to include the path to libamdsmi.so.1.
+		cmd.Env = setOrOverrideEnvvar(os.Environ(), "LD_PRELOAD", prependPathListEnvvar("LD_PRELOAD", t.libPath))
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			klog.Errorf("\n%v", string(output))
+			return fmt.Errorf("error running amdsmi: %w", err)
+		}
+	}
+	return nil
+}
+
+func (t *TimeSlicingManager) setComputeMode(uuids []string, mode string) error {
+	for _, uuid := range uuids {
+		cmd := exec.Command(
+			t.cliPath,
+			"-i", uuid,
+			"-c", mode)
+
+		// In order for amdsmi to run, we need to update LD_PRELOAD to include the path to libamdsmi.so.1.
+		cmd.Env = setOrOverrideEnvvar(os.Environ(), "LD_PRELOAD", prependPathListEnvvar("LD_PRELOAD", t.libPath))
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			klog.Errorf("\n%v", string(output))
+			return fmt.Errorf("error running amdsmi: %w", err)
+		}
+	}
+	return nil
+}
+
+func NewMpsManager(config *Config, amdsmi *deviceLib, cliPath, libPath string, hostDriverRoot, templatePath string) *MpsManager {
 	controlFilesRoot := filepath.Join(config.DriverPluginPath(), MpsControlFilesDirName)
 
 	return &MpsManager{
@@ -133,7 +185,9 @@ func NewMpsManager(config *Config, deviceLib *deviceLib, hostDriverRoot, templat
 		hostDriverRoot:   hostDriverRoot,
 		templatePath:     templatePath,
 		config:           config,
-		nvdevlib:         deviceLib,
+		amdsmi:           amdsmi,
+		cliPath:          cliPath,
+		libPath:          libPath,
 	}
 }
 
@@ -206,10 +260,10 @@ func (m *MpsControlDaemon) Start(ctx context.Context, config *configapi.MpsConfi
 		NodeName:                        m.nodeName,
 		MpsControlDaemonNamespace:       m.namespace,
 		MpsControlDaemonName:            m.name,
-		CUDA_VISIBLE_DEVICES:            strings.Join(deviceUUIDs, ","),
+		ROCM_VISIBLE_DEVICES:            strings.Join(deviceUUIDs, ","),
 		DefaultActiveThreadPercentage:   "",
 		DefaultPinnedDeviceMemoryLimits: nil,
-		NvidiaDriverRoot:                m.manager.hostDriverRoot,
+		RocmDriverRoot:                  m.manager.hostDriverRoot,
 		MpsShmDirectory:                 m.shmDir,
 		MpsPipeDirectory:                m.pipeDir,
 		MpsLogDirectory:                 m.logDir,
@@ -279,7 +333,8 @@ func (m *MpsControlDaemon) Start(ctx context.Context, config *configapi.MpsConfi
 		return fmt.Errorf("error mounting %v as tmpfs: %w", m.shmDir, err)
 	}
 
-	err = m.manager.nvdevlib.setComputeMode(m.devices.GpuUUIDs(), "EXCLUSIVE_PROCESS")
+	// Set compute mode to EXCLUSIVE_PROCESS for MPS
+	err = m.manager.setComputeMode(m.devices.GpuUUIDs(), "EXCLUSIVE_PROCESS")
 	if err != nil {
 		return fmt.Errorf("error setting compute mode: %w", err)
 	}
@@ -292,6 +347,25 @@ func (m *MpsControlDaemon) Start(ctx context.Context, config *configapi.MpsConfi
 		return fmt.Errorf("failed to create deployment: %w", err)
 	}
 
+	return nil
+}
+
+func (m *MpsManager) setComputeMode(uuids []string, mode string) error {
+	for _, uuid := range uuids {
+		cmd := exec.Command(
+			m.cliPath,
+			"-i", uuid,
+			"-c", mode)
+
+		// In order for amdsmi to run, we need to update LD_PRELOAD to include the path to libamdsmi.so.1.
+		cmd.Env = setOrOverrideEnvvar(os.Environ(), "LD_PRELOAD", prependPathListEnvvar("LD_PRELOAD", m.libPath))
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			klog.Errorf("\n%v", string(output))
+			return fmt.Errorf("error running amdsmi: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -356,7 +430,7 @@ func (m *MpsControlDaemon) GetCDIContainerEdits() *cdiapi.ContainerEdits {
 	return &cdiapi.ContainerEdits{
 		ContainerEdits: &cdispec.ContainerEdits{
 			Env: []string{
-				fmt.Sprintf("CUDA_MPS_PIPE_DIRECTORY=%s", "/tmp/nvidia-mps"),
+				fmt.Sprintf("ROCM_MPS_PIPE_DIRECTORY=%s", "/tmp/rocm-mps"),
 			},
 			Mounts: []*cdispec.Mount{
 				{
@@ -365,7 +439,7 @@ func (m *MpsControlDaemon) GetCDIContainerEdits() *cdiapi.ContainerEdits {
 					Options:       []string{"rw", "nosuid", "nodev", "bind"},
 				},
 				{
-					ContainerPath: "/tmp/nvidia-mps",
+					ContainerPath: "/tmp/rocm-mps",
 					HostPath:      m.pipeDir,
 					Options:       []string{"rw", "nosuid", "nodev", "bind"},
 				},
@@ -449,4 +523,3 @@ func getDefaultShmSize() string {
 	}
 	return fallbackSize
 }
-

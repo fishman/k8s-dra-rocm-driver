@@ -1,13 +1,9 @@
-module github.com/Project-HAMi/k8s-dra-driver
+module github.com/fishman/k8s-dra-rocm-driver
 
 go 1.25.1
 
 require (
 	github.com/Masterminds/semver v1.5.0
-	github.com/NVIDIA/go-nvlib v0.8.1
-	github.com/NVIDIA/go-nvml v0.13.0-1
-	github.com/NVIDIA/k8s-dra-driver-gpu v0.0.0-20251107000443-55fc7b0921da
-	github.com/NVIDIA/nvidia-container-toolkit v1.18.0
 	github.com/google/uuid v1.6.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/pflag v1.0.10
@@ -29,6 +25,7 @@ require (
 )
 
 require (
+	github.com/ROCm/amdsmi v0.0.0-20251117222445-a044536b8d69 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect

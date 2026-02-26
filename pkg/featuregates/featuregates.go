@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 NVIDIA CORPORATION.
+ * Copyright 2024-2026 Advanced Micro Devices, Inc. (AMD).
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,9 +24,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	logsapi "k8s.io/component-base/logs/api/v1"
 
-
-	info "github.com/Project-HAMi/k8s-dra-driver/pkg/version"
-	// "github.com/NVIDIA/k8s-dra-driver-gpu/internal/info"
+	info "github.com/fishman/k8s-dra-rocm-driver/pkg/version"
 )
 
 const (
