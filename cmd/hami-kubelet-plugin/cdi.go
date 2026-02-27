@@ -274,10 +274,11 @@ func (cdi *CDIHandler) createStandardRocmDeviceSpecFile(allocatable AllocatableD
 
 func (cdi *CDIHandler) createRocmDeviceSpec(deviceIndex uint32, device *AllocatableDevice) (cdispec.Device, error) {
 	// Get device information using index-based API
-	uuid := goamdsmi.GO_gpu_dev_unique_id_get(deviceIndex)
-	if uuid == "" {
-		return cdispec.Device{}, fmt.Errorf("failed to get device UUID for index %d", deviceIndex)
+	devID := goamdsmi.GO_gpu_dev_id_get(int(deviceIndex))
+	if devID == 0xFFFF {
+		return cdispec.Device{}, fmt.Errorf("failed to get device ID for index %d", deviceIndex)
 	}
+	uuid := fmt.Sprintf("00000000-0000-0000-0000-00000000%04x", devID)
 
 	// Get PCI bus ID
 	bdfid := goamdsmi.GO_gpu_dev_pci_id_get(deviceIndex)
