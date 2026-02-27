@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"unsafe"
 
 	goamdsmi "github.com/fishman/amdsmi"
 	"k8s.io/klog/v2"
@@ -274,11 +275,16 @@ func (cdi *CDIHandler) createStandardRocmDeviceSpecFile(allocatable AllocatableD
 
 func (cdi *CDIHandler) createRocmDeviceSpec(deviceIndex uint32, device *AllocatableDevice) (cdispec.Device, error) {
 	// Get device information using index-based API
-	devID := goamdsmi.GO_gpu_dev_id_get(int(deviceIndex))
-	if devID == 0xFFFF {
-		return cdispec.Device{}, fmt.Errorf("failed to get device ID for index %d", deviceIndex)
+	uuidPtr := goamdsmi.GO_gpu_dev_unique_id_get(int(deviceIndex))
+	if uuidPtr == nil {
+		return cdispec.Device{}, fmt.Errorf("failed to get device UUID for index %d", deviceIndex)
 	}
-	uuid := fmt.Sprintf("00000000-0000-0000-0000-00000000%04x", devID)
+	uuid := C.GoString(uuidPtr)
+	defer C.free(unsafe.Pointer(uuidPtr))
+
+	if uuid == "NA" {
+		return cdispec.Device{}, fmt.Errorf("invalid UUID returned for device index %d", deviceIndex)
+	}
 
 	// Get PCI bus ID
 	bdfid := goamdsmi.GO_gpu_dev_pci_id_get(deviceIndex)
