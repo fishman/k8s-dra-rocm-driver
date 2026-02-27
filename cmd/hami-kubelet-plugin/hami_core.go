@@ -26,7 +26,7 @@ import (
 	"strings"
 
 	"github.com/Masterminds/semver"
-	goamdsmi "github.com/ROCm/amdsmi"
+	goamdsmi "github.com/fishman/amdsmi"
 	"github.com/google/uuid"
 	"github.com/spf13/pflag"
 	"github.com/urfave/cli/v2"

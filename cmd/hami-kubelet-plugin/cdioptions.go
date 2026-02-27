@@ -17,7 +17,7 @@
 package main
 
 import (
-	goamdsmi "github.com/ROCm/amdsmi"
+	goamdsmi "github.com/fishman/amdsmi"
 )
 
 // cdiOption represents a functional option for constructing a CDI handler.

@@ -30,7 +30,7 @@ import (
 
 	"k8s.io/dynamic-resource-allocation/deviceattribute"
 
-	goamdsmi "github.com/ROCm/amdsmi"
+	goamdsmi "github.com/fishman/amdsmi"
 )
 
 type deviceLib struct {

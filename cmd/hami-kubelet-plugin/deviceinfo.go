@@ -20,7 +20,7 @@ import (
 	"fmt"
 
 	"github.com/Masterminds/semver"
-	goamdsmi "github.com/ROCm/amdsmi"
+	goamdsmi "github.com/fishman/amdsmi"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/dynamic-resource-allocation/deviceattribute"

@@ -29,7 +29,7 @@ import (
 	cdiapi "tags.cncf.io/container-device-interface/pkg/cdi"
 	cdispec "tags.cncf.io/container-device-interface/specs-go"
 
-	goamdsmi "github.com/ROCm/amdsmi"
+	goamdsmi "github.com/fishman/amdsmi"
 )
 
 const (
